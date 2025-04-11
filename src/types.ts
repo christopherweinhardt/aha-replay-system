@@ -20,11 +20,11 @@ enum TargetZone {
     Unknown = 5,
 }
 
-type PanCycleData = {
+type ReplayData = {
     location_id: string;
     date: Date;
     pan_cycles: PanCycle[];
 }
 
-export type { PanCycle, PanCycleData };
+export type { PanCycle, ReplayData };
 export { TargetZone }

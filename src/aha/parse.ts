@@ -1,6 +1,6 @@
-import { PanCycle, PanCycleData, TargetZone } from "../types";
+import { PanCycle, ReplayData, TargetZone } from "../types";
 
-function parse_aha_csv(csv: string): PanCycleData | null{
+function parse_aha_csv(csv: string): ReplayData | null{
     const lines = csv.split("\n");
     const headers = lines[0].split(",");
     const data: { [key: string]: string }[] = [];

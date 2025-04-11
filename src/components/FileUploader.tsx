@@ -1,19 +1,25 @@
-import { ChangeEvent, useState } from "react";
+import { ChangeEvent, useContext } from "react";
 import parse_aha_csv from "../aha/parse";
 import './FileUploader.css';
+import { ReplayContext } from "../context";
 
 export default function FileUploader() {
 
-    const [file, setFile] = useState<File | null>();
+    const replayData = useContext(ReplayContext);
+
 
     async function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
         if(e.target.files) {
 
             const input_file = e.target.files[0];
 
-            setFile(input_file);
             const data = parse_aha_csv(await input_file.text());
-            console.log(data);
+
+            if(!data) {
+                return console.error("Error parsing CSV file");
+            }
+
+            replayData?.setReplayData(data);
         }
     }
 
