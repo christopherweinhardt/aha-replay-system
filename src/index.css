@@ -1,0 +1,47 @@
+:root {
+  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: light dark;
+  background-color: #fff;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@font-face {
+  font-family: 'CaeciliaCom';
+  font-style: normal;
+  font-weight: 700;
+  src: local('CaeciliaCom'), url('https://sandbloxmc.s3.us-east-2.amazonaws.com/CaeciliaCom-75Bold.woff2') format('woff2');
+}
+
+
+body {
+  margin: 0;
+  color: #212529;
+}
+
+h1 {
+  font-size: 24px;
+  line-height: 1.1;
+  font-family: Apercu;
+  font-weight: 400;
+}
+
+h2 {
+  font-family: 'CaeciliaCom';
+  font-weight: 700;
+  font-size: 1.25rem;
+}
+
+.container {
+  padding: 0 8vw;
+}
+
+input[type=file] {
+  display: none;
+}
