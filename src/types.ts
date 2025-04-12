@@ -26,5 +26,22 @@ type ReplayData = {
     pan_cycles: PanCycle[];
 }
 
+export function getTargetZoneString(targetZone: TargetZone): string {
+    switch (targetZone) {
+        case TargetZone.TooLittle:
+            return "Too Little";
+        case TargetZone.SlightlyTooLittle:
+            return "Slightly Too Little";
+        case TargetZone.OnTarget:
+            return "On Target";
+        case TargetZone.SlightlyTooMuch:
+            return "Slightly Too Much";
+        case TargetZone.TooMuch:
+            return "Too Much";
+        default:
+            return "";
+    }
+}
+
 export type { PanCycle, ReplayData };
 export { TargetZone }

@@ -8,7 +8,7 @@ function parse_aha_csv(csv: string): ReplayData | null{
 
     for (let i = 1; i < lines.length; i++) {
         const obj: { [key: string]: string } = {};
-        const currentline = lines[i].split(",");
+        const currentline = lines[i].replace(/,\s*$/, "").split(",");
 
         for (let j = 0; j < headers.length; j++) {
             obj[headers[j]] = currentline[j];
@@ -53,6 +53,9 @@ function parse_aha_csv(csv: string): ReplayData | null{
         
         pan_cycles.push(pan_cycle);
     }
+
+    // sort pan cycles by start_timestamp
+    pan_cycles.sort((a, b) => a.start_timestamp.getTime() - b.start_timestamp.getTime());
 
     return {
         location_id: location_id || "",
