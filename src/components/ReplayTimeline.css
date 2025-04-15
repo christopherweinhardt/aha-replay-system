@@ -71,13 +71,13 @@
 }
 
 .red-marker {
-    background-color: rgb(221,0,49); /* Red color for the red marker */
+    background-color: #dd0031; /* Red color for the red marker */
 }
 .green-marker {
-    background-color: rgb(36,158,107); /* Green color for the green marker */
+    background-color: #249e6b; /* Green color for the green marker */
 }
 .yellow-marker {
-    background-color: rgb(255,181,73); /* Yellow color for the yellow marker */
+    background-color: #ffb549; /* Yellow color for the yellow marker */
 }
 
 

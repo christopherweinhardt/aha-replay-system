@@ -1,6 +1,8 @@
 import { ReplayTimeline } from "./ReplayTimeline";
 import { ReplayContext } from '../context';
 import { useContext } from 'react';
+import ReplayCanvas from "./ReplayCanvas";
+import './ReplayViewport.css';
 
 export function ReplayViewport() {
     
@@ -12,6 +14,7 @@ export function ReplayViewport() {
                 <div className="replay-viewport">
                     <h2>TIMELINE</h2>
                     <ReplayTimeline />
+                    <ReplayCanvas />
                 </div>
             }
         </>

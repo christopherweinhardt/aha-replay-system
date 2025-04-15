@@ -1,4 +1,4 @@
-import { useContext, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import './ReplayTimeline.css';
 
 import playSVG from '../assets/play-sharp.svg';
@@ -7,116 +7,111 @@ import skipForwardSVG from '../assets/play-forward-sharp.svg';
 import skipBackwardSVG from '../assets/play-back-sharp.svg';
 
 import { ReplayContext } from '../context';
-import { getTargetZoneString, PanCycle, TargetZone } from '../types';
+import { getTargetZoneString, Pan, PanCycle, PanEvent, PanEventType, PanLocation, PreProcessedEventData, TargetZone, Keyframe } from '../types';
 
 export function ReplayTimeline() {
     const replayDataCtx = useContext(ReplayContext);
     const panCycles = replayDataCtx?.replayData?.pan_cycles;
 
-    const [sliderValue, setSliderValue] = useState(0);
-    const [closestCycle, setClosestCycle] = useState<PanCycle | null>(null);
-    const [isPlaying, setIsPlaying] = useState(false);
+    if (replayDataCtx) {
+        replayDataCtx.processData = processData; // Assign the processData function to the context
+    }
 
-    const snapThreshold = 2;
-    const timelineResolution = 1000;
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [currentCycle, setCurrentCycle] = useState<PanCycle | null>(null);
+
+
+    // Replay events
+
+    // Detect events
+
+    const find_event = (position: number) => {
+        // turn position into datetime
+
+        if (!replayDataCtx || !panCycles) return;
+
+        const totalDuration = replayDataCtx?.endTime.getTime() - replayDataCtx?.startTime.getTime();
+        const currentTime = new Date(replayDataCtx?.startTime.getTime() + (position / replayDataCtx?.timelineResolution) * totalDuration);
+
+        if(!panCycles)
+            return;
+
+
+    }
+
+    const handleEvent = (panEvent: PanEvent) => {
+        if(!replayDataCtx)
+            return;
+        
+    
+        // find pan related to event
+        const pan = replayDataCtx?.pans?.find(p => p.protein_pan === panEvent.pan_cycle.protein_pan);
+        if (!pan) {
+            console.error('Pan not found for event:', panEvent);
+            return;
+        }
+
+        // move pan to new location
+        switch (panEvent.event_type) {
+            case 'start':
+                pan.pan_location = PanLocation.Holding;
+                break;
+            case 'cook':
+                pan.pan_location = PanLocation.Queue;
+                break;
+            case 'fill':
+                pan.pan_location = PanLocation.Funnel;
+                break;
+            case 'stop':
+                pan.pan_location = PanLocation.Queue;
+                break;
+            default:
+                console.error('Unknown event type:', panEvent.event_type);
+        }
+    }
+
+    useEffect(() => {
+        if (replayDataCtx?.timelinePosition) {
+            replayDataCtx?.renderEvent?.(); // Call the render function when the timeline position changes
+        }
+    }, [replayDataCtx, replayDataCtx?.timelinePosition]);
 
     const handleSliderChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const inputValue = Number(event.target.value);
-        updateSliderChange(inputValue);
 
+        if (!replayDataCtx) return;
+        replayDataCtx.setTimelinePosition(inputValue);
+        replayDataCtx.timelinePosition = inputValue;
+        replayDataCtx.jumpToFrame?.(inputValue);
+        
+        updateSliderChange(inputValue);
         if(isPlaying) {
             handlePlayPause(); // Pause the playback when the slider is changed
         }
     };
 
     function updateSliderChange(value: number) {
-        setSliderValue(value);
-        const closestValue = redDotPositions.concat(yellowDotPositions).concat(greenDotPositions).find(
-            (position) => Math.abs(position.position - value) <= snapThreshold
-        );
-        setClosestCycle(closestValue?.cycle || null);
-    }
+        if (!replayDataCtx)
+            return;
 
+        
+        const clampedValue = Math.min(value, replayDataCtx.timelineResolution); // Clamp to max value
+        replayDataCtx.setTimelinePosition(clampedValue);
+
+    }
     const intervalRef = useRef<number | undefined>(undefined);
-    const handlePlayPause = () => {
-        const _isPlaying = !isPlaying;
-        setIsPlaying(_isPlaying);
-        if (_isPlaying) {
-            console.log("PLAY");
-            intervalRef.current = window.setInterval(() => {
-                setSliderValue((prev) => {
-                    const newValue = prev + 1;
-                    updateSliderChange(newValue);
-                    if (newValue >= timelineResolution) {
-                        clearInterval(intervalRef.current);
-                        return timelineResolution;
-                    }
-                    return newValue;
-                });
-            }, 250); // Adjust the interval duration as needed
-            console.log(intervalRef.current);
-        } else {
-            console.log("PAUSE");
-            clearInterval(intervalRef.current); // Clear the interval when paused
-        }
-    };
+    const latestTimelinePositionRef = useRef<number>(replayDataCtx?.timelinePosition || 0);
 
-    const handleSkipForward = () => {
-        setSliderValue((prev) => Math.min(prev + 10, timelineResolution));
-    };
-
-    const handleSkipBackward = () => {
-        setSliderValue((prev) => Math.max(prev - 10, 0));
-    };
-
-    if (!panCycles) {
-        return null; // or some loading state
-    }
-
-    const redDotPositions = panCycles
-        .filter((cycle) => cycle.tzi_target_zone === 0 || cycle.tzi_target_zone === 4)
-        .map((cycle) => {
-            const endDate = new Date(cycle.stop_timestamp);
-            const startDate = new Date(panCycles[0].start_timestamp);
-            const totalDuration = new Date(panCycles[panCycles.length - 1].stop_timestamp).getTime() - startDate.getTime();
-            const position = ((endDate.getTime() - startDate.getTime()) / totalDuration) * timelineResolution;
-            return { position, cycle };
-        });
-
-    const greenDotPositions = panCycles
-        .filter((cycle) => cycle.tzi_target_zone === 2)
-        .map((cycle) => {
-            const endDate = new Date(cycle.stop_timestamp);
-            const startDate = new Date(panCycles[0].start_timestamp);
-            const totalDuration = new Date(panCycles[panCycles.length - 1].stop_timestamp).getTime() - startDate.getTime();
-            const position = ((endDate.getTime() - startDate.getTime()) / totalDuration) * timelineResolution;
-            return { position, cycle };
-        });
-
-    const yellowDotPositions = panCycles
-        .filter((cycle) => cycle.tzi_target_zone === 1 || cycle.tzi_target_zone === 3)
-        .map((cycle) => {
-            const endDate = new Date(cycle.stop_timestamp);
-            const startDate = new Date(panCycles[0].start_timestamp);
-            const totalDuration = new Date(panCycles[panCycles.length - 1].stop_timestamp).getTime() - startDate.getTime();
-            const position = ((endDate.getTime() - startDate.getTime()) / totalDuration) * timelineResolution;
-            return { position, cycle };
-        });
-
-    function interpolateTimestringFromSliderValue(value: number) {
-        if (!panCycles) {
-            return "";
-        }
-        const totalDuration = getLatestTime().getTime() - getEarliestTime().getTime();
-        const currentTime = new Date(getEarliestTime().getTime() + (value / timelineResolution) * totalDuration);
-        return currentTime;
-    }
+    useEffect(() => {
+        latestTimelinePositionRef.current = replayDataCtx?.timelinePosition || 0;
+    }, [replayDataCtx?.timelinePosition]);
 
     function getEarliestTime() {
         if (!panCycles) {
             return new Date(Date.now());
         }
-        return panCycles[0].start_timestamp;
+        const earliestTime = panCycles[0].start_timestamp;
+        return new Date(earliestTime.getTime() - 5 * 60 * 1000); // Subtract 5 minutes as a buffer
     }
 
     function getLatestTime() {
@@ -126,7 +121,157 @@ export function ReplayTimeline() {
         const latestCycle = panCycles.reduce((latest, cycle) => {
             return cycle.stop_timestamp > latest.stop_timestamp ? cycle : latest;
         });
-        return latestCycle.stop_timestamp;
+
+        const latestTime = latestCycle.stop_timestamp;
+        
+        return new Date(latestTime.getTime() + 5 * 60 * 1000); // Add 5 minutes as a buffer
+    }
+
+    function processData() {
+        console.log("Processing data...")
+        
+        if (!replayDataCtx)
+            return;
+
+        
+        // set start and end times
+        const startTime = getEarliestTime();
+        const endTime = getLatestTime();
+        replayDataCtx.startTime = startTime;
+        replayDataCtx.endTime = endTime;
+        
+        replayDataCtx.setStartTime(startTime);
+        replayDataCtx.setEndTime(endTime);
+        
+
+        const totalSeconds = Math.floor((endTime.getTime() - startTime.getTime()) / 1000);
+        replayDataCtx.timelineResolution = totalSeconds
+        replayDataCtx.setTimelineResolution(totalSeconds);
+
+        // create keyframe array populated with empty keyframes with size of totalSeconds
+        const keyframes: Keyframe[] = Array.from({ length: totalSeconds }, () => ({ events: [] }));
+        
+        // loop through pan cycles
+        panCycles?.forEach((cycle) => {
+            // diff between cycle start and sim start time in seconds
+            const startDiff = Math.round((cycle.start_timestamp.getTime() - startTime.getTime()) / 1000);
+            const endDiff = Math.round((cycle.stop_timestamp.getTime() - startTime.getTime()) / 1000);
+            keyframes[startDiff].events.push({
+                event_type: PanEventType.Start,
+                timestamp: cycle.start_timestamp,
+                pan_cycle: cycle,
+            });
+            keyframes[endDiff].events.push({
+                event_type: PanEventType.Stop,
+                timestamp: cycle.stop_timestamp,
+                pan_cycle: cycle,
+            });
+        });
+        replayDataCtx.setKeyframeData({ keyframes, keyframe_count: keyframes.length });
+    };
+
+    const handlePlayPause = () => {
+        const _isPlaying = !isPlaying;
+        setIsPlaying(_isPlaying);
+        if (!replayDataCtx) return;
+
+        if (_isPlaying) {
+            if (intervalRef.current != undefined) return;
+
+            // if timeline position is at the end, reset to start
+            if (replayDataCtx?.timelinePosition >= replayDataCtx?.timelineResolution - 1) {
+                replayDataCtx.setTimelinePosition(0);
+                latestTimelinePositionRef.current = 0;
+            }
+
+            intervalRef.current = window.setInterval(() => {
+                const prev = latestTimelinePositionRef.current;
+                if (prev >= replayDataCtx?.timelineResolution - 1) {
+                    clearInterval(intervalRef.current);
+                    setIsPlaying(false); // Stop playback when reaching the end
+                    intervalRef.current = undefined;
+                    return;
+                }
+                updateSliderChange(prev);
+                
+                const newValue = prev + 1;
+                latestTimelinePositionRef.current = newValue;
+                replayDataCtx.setTimelinePosition(newValue);
+            }, 50 / replayDataCtx?.playbackSpeed); // Adjust the interval duration as needed
+        } else {
+            clearInterval(intervalRef.current); // Clear the interval when paused
+            intervalRef.current = undefined;
+        }
+    };
+
+    const handleSkipForward = () => {
+        if (!replayDataCtx) return;
+        const prevValue = replayDataCtx?.timelinePosition || 0;
+        const newValue = Math.min(prevValue + 10, replayDataCtx?.timelineResolution);
+        replayDataCtx.setTimelinePosition(newValue);
+        replayDataCtx.timelinePosition = newValue;
+        replayDataCtx.jumpToFrame?.(newValue);
+        updateSliderChange(newValue);
+    };
+
+    const handleSkipBackward = () => {
+        if (!replayDataCtx) return;
+        const prevValue = replayDataCtx?.timelinePosition || 0;
+        const newValue = Math.max(prevValue - 10, 0)
+        replayDataCtx.setTimelinePosition(newValue);
+        replayDataCtx.timelinePosition = newValue;
+        replayDataCtx.jumpToFrame?.(newValue);
+        updateSliderChange(newValue);
+    };
+
+    const redDotPositions = useRef<{position: number}[]>([]);
+    const greenDotPositions = useRef<{position: number}[]>([]);
+    const yellowDotPositions = useRef<{position: number}[]>([]);
+
+    useEffect(() => {
+        if (!panCycles) {
+            return;
+        }
+
+        redDotPositions.current = panCycles
+            .filter((cycle) => cycle.tzi_target_zone === 0 || cycle.tzi_target_zone === 4)
+            .map((cycle) => {
+                const endDate = new Date(cycle.stop_timestamp);
+                const startDate = replayDataCtx?.startTime;
+                const totalDuration = replayDataCtx?.endTime.getTime() - startDate.getTime();
+                const position = ((endDate.getTime() - startDate.getTime()) / totalDuration) * replayDataCtx?.timelineResolution;
+                return { position, cycle };
+            });
+
+        greenDotPositions.current = panCycles
+            .filter((cycle) => cycle.tzi_target_zone === 2)
+            .map((cycle) => {
+                const endDate = new Date(cycle.stop_timestamp);
+                const startDate = replayDataCtx?.startTime;
+                const totalDuration = replayDataCtx?.endTime.getTime() - startDate.getTime();
+                const position = ((endDate.getTime() - startDate.getTime()) / totalDuration) * replayDataCtx?.timelineResolution;
+                return { position, cycle };
+            });
+
+        yellowDotPositions.current = panCycles
+            .filter((cycle) => cycle.tzi_target_zone === 1 || cycle.tzi_target_zone === 3)
+            .map((cycle) => {
+                const endDate = new Date(cycle.stop_timestamp);
+                const startDate = replayDataCtx?.startTime;
+                const totalDuration = replayDataCtx?.endTime.getTime() - startDate.getTime();
+                const position = ((endDate.getTime() - startDate.getTime()) / totalDuration) * replayDataCtx?.timelineResolution;
+                return { position, cycle };
+            });
+    });
+
+
+    function interpolateTimestringFromSliderValue(value: number) {
+        if (!panCycles) {
+            return "";
+        }
+        const totalDuration = replayDataCtx?.endTime.getTime() - replayDataCtx?.startTime.getTime();
+        const currentTime = new Date(replayDataCtx?.startTime.getTime() + (value / replayDataCtx?.timelineResolution) * totalDuration);
+        return currentTime;
     }
 
     function getDurationString(cycle: PanCycle | null) {
@@ -143,72 +288,64 @@ export function ReplayTimeline() {
         <>
             {panCycles && (
                 <>
-                    <div className="timeline-header">
-                        <h2>Replay Timeline</h2>
-                        <span className="cycle-info">Protein Name: {closestCycle?.protein_name} </span>
-                        <br />
-                        <span className="cycle-info">Duration: {getDurationString(closestCycle)}</span>
-                        <br />
-                        <span className="cycle-info">Breader ID: {closestCycle?.breader_id} </span>
-                    </div>
                     <div className="timeline-container">
                         <span className="timeline-label">
-                            {getEarliestTime().toLocaleTimeString('en-US', { timeStyle: 'short' })}
+                            {replayDataCtx?.startTime.toLocaleTimeString('en-US', { timeStyle: 'short' })}
                         </span>
                         <div className="input-wrapper">
                             <input
                                 type="range"
                                 className="timeline"
                                 min={0}
-                                max={timelineResolution}
+                                max={replayDataCtx?.timelineResolution - 1}
                                 step={1}
-                                value={sliderValue}
+                                value={replayDataCtx?.timelinePosition}
                                 onChange={handleSliderChange}
                             />
                         </div>
                         <>
-                            {redDotPositions.map((position, index) => (
+                            {redDotPositions.current.map((position, index) => (
                                 <div
                                     key={index}
                                     className="timeline-marker red-marker"
-                                    style={{ left: `${(position.position / timelineResolution) * 100}%` }}
+                                    style={{ left: `${(position.position / replayDataCtx?.timelineResolution) * 100}%` }}
                                 ></div>
                             ))}
                         </>
                         <>
-                            {greenDotPositions.map((position, index) => (
+                            {greenDotPositions.current.map((position, index) => (
                                 <div
                                     key={index}
                                     className="timeline-marker green-marker"
-                                    style={{ left: `${(position.position / timelineResolution) * 100}%` }}
+                                    style={{ left: `${(position.position / replayDataCtx?.timelineResolution) * 100}%` }}
                                 ></div>
                             ))}
                         </>
                         <>
-                            {yellowDotPositions.map((position, index) => (
+                            {yellowDotPositions.current.map((position, index) => (
                                 <div
                                     key={index}
                                     className="timeline-marker yellow-marker"
-                                    style={{ left: `${(position.position / timelineResolution) * 100}%` }}
+                                    style={{ left: `${(position.position / replayDataCtx?.timelineResolution) * 100}%` }}
                                 ></div>
                             ))}
                         </>
                         <div
                             className="slider-thumb-label"
-                            style={{ left: `${(sliderValue / timelineResolution) * 100}%` }}
+                            style={{ left: `${(replayDataCtx?.timelinePosition / replayDataCtx?.timelineResolution) * 100}%` }}
                         >
-                            {interpolateTimestringFromSliderValue(sliderValue).toLocaleString('en-US', {
+                            {interpolateTimestringFromSliderValue(replayDataCtx?.timelinePosition).toLocaleString('en-US', {
                                 timeStyle: 'short',
                             })}
                         </div>
                         <div
                             className="slider-thumb-label-below"
-                            style={{ left: `${(sliderValue / timelineResolution) * 100}%` }}
+                            style={{ left: `${(replayDataCtx?.timelinePosition / replayDataCtx?.timelineResolution) * 100}%` }}
                         >
-                            {getTargetZoneString(closestCycle?.tzi_target_zone as TargetZone)}
+                            {getTargetZoneString(currentCycle?.tzi_target_zone as TargetZone)}
                         </div>
                         <span className="timeline-label">
-                            {getLatestTime().toLocaleTimeString('en-US', { timeStyle: 'short' })}
+                            {replayDataCtx?.endTime.toLocaleTimeString('en-US', { timeStyle: 'short' })}
                         </span>
                     </div>
                     <div className="timeline-controls">

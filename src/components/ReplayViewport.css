@@ -1,0 +1,6 @@
+.replay-canvas {
+    width: 50%;
+    height: 100%;
+    margin: 2% auto;
+    display: flex;
+}

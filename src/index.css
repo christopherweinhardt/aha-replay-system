@@ -16,9 +16,8 @@
   font-family: 'CaeciliaCom';
   font-style: normal;
   font-weight: 700;
-  src: local('CaeciliaCom'), url('https://sandbloxmc.s3.us-east-2.amazonaws.com/CaeciliaCom-75Bold.woff2') format('woff2');
+  src: local('CaeciliaCom'), url('./assets/caeciliacom-bold.ttf') format('trueType');
 }
-
 
 body {
   margin: 0;
