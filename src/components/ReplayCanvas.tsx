@@ -166,7 +166,6 @@ const ReplayCanvas: React.FC = () => {
                     // set the machine to cooking
                     machines.current[machineIndex].cooking = false;
                     machines.current[machineIndex].cooking_protein = undefined;
-                    console.log("Remove pan from machine", pan.pan.protein_pan, "at index", machineIndex);
 
                     break;
                 }
@@ -314,7 +313,7 @@ const ReplayCanvas: React.FC = () => {
 
     const notifications = useRef<Notification[]>([]);
 
-    const currentBreader = useRef<string>("");
+    const currentBreader = useRef<string>("None");
 
     function renderScene(events: PanEvent[], pans: PanDrawable[], simulationTime: Date, t: number = 0) {
         const drawKanban = (context: CanvasRenderingContext2D, pan: PanDrawable, simulationTime: Date, t: number) => {
