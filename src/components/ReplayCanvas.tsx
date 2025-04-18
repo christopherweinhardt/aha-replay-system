@@ -1,12 +1,16 @@
 import React, { useRef, useEffect, useContext } from 'react';
 import './ReplayViewport.css'
 import { ReplayContext } from '../context';
-import { Pan, PanEvent, PanLocation, Keyframe, PanDrawable, PanCycle, getScanOutDescription, PanEventType } from '../types';
+import { Pan, PanEvent, PanLocation, Keyframe, PanDrawable, PanCycle, getScanOutDescription, PanEventType, getCookTimeForProtein } from '../types';
 
 import hennyBase from '../assets/henny_base.png';
+import hennyBaseOpen from '../assets/henny_base_open.png';
 import kanban from '../assets/kanban.png';
 import kanban_expired from '../assets/kanban_expired.png';
 import spindle from '../assets/spindle.png';
+import shelf from '../assets/shelf.png';
+import funnel from '../assets/funnel.png';
+import timer from '../assets/timer.png';
 
 const ReplayCanvas: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -21,7 +25,7 @@ const ReplayCanvas: React.FC = () => {
     // load image assets
     const images = useRef<{ [key: string]: HTMLImageElement }>({});
     useEffect(() => {
-        const imageAssets = [hennyBase, kanban, kanban_expired, spindle];
+        const imageAssets = [hennyBase, hennyBaseOpen, kanban, kanban_expired, spindle, shelf, funnel, timer];
         imageAssets.forEach((src) => {
             const img = new Image();
             img.src = src;
@@ -41,7 +45,9 @@ const ReplayCanvas: React.FC = () => {
         });
     }, []);
 
-    function getPanName(input: PanCycle | Pan, truncate = true): string {
+    function getPanName(input: PanCycle | Pan | undefined, truncate = true): string {
+        if (!input) return "Unknown"; // Handle undefined input
+
         const nameParts = input.protein_pan.split(" ");
         const panNumber = nameParts[nameParts.length - 1]; // Get the last part (pan number)
         const proteinName = input.protein_name.toUpperCase();
@@ -76,16 +82,35 @@ const ReplayCanvas: React.FC = () => {
         return result;
     }
 
+    function getTimeUntilMachineDone(machine: Machine, simulationTime: Date) {
+        if(!machine.cooking_protein) return "Unknown";
+        if(!machine.cooking_finish_time) return "Unknown";
+
+        // get finish 
+        const timeUntilFill = machine.cooking_finish_time?.getTime() - simulationTime.getTime();
+
+        const totalSeconds = Math.floor(timeUntilFill / 1000);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = Math.abs(totalSeconds % 60);
+        const result = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        return result;
+    }
+
     const pans = useRef<PanDrawable[]>([]);
 
     function initPans() {
         if (replayData) {
             const width = 80;
-            const spacing = 10; // Add spacing between pans
+            const spacing = 0; // Add spacing between pans
+            const panCount = replayData.pans?.length || 0;
+
+            const totalWidth = panCount * width + (panCount - 1) * spacing;
+
             pans.current = replayData?.pans?.map((pan, index) => ({
                 pan: pan,
-                x: 10 + index * (width + spacing),
-                y: 150,
+                x: (400 - totalWidth/2) + index * (width + spacing),
+                start_x: (400 - totalWidth/2) + index * (width + spacing),
+                y: 75,
                 next_pan: {
                     ...pan
                 },
@@ -93,9 +118,19 @@ const ReplayCanvas: React.FC = () => {
                 next_y: 0,
             })) || [];
             
-            pans.current.forEach((pan, index) => {
+            pans.current.forEach((pan) => {
                 pan.pan.pan_location = PanLocation.Queue;
             });
+
+            machines.current = [];
+            // fill machines with 6 states
+            for(let i = 0; i < 6; i++) {
+                machines.current.push({
+                    cooking: false,
+                    cooking_protein: undefined,
+                    open_mode: ((i<3) ? true : false),
+                });
+            }
         }
     }
 
@@ -111,22 +146,50 @@ const ReplayCanvas: React.FC = () => {
         if (pan) {
             switch (event.event_type) {
                 case 'start':
-                    pan.next_x = pan.x;
-                    pan.next_y = 300;
+                    pan.next_x = pan.start_x;
+                    pan.next_y = 400;
                     pan.pan.pan_location = PanLocation.Holding;
                     pan.pan.expire_date = new Date(currentSimulationTime.getTime() + 20 * 60 * 1000); // Set expire date to 20 minutes from now
                     break;
-                case 'fill':
-                    pan.next_y = 250;
-                    pan.next_x = pan.x;
+                case 'fill': {
+                    pan.next_y = 290;
+                    pan.next_x = 400 - 40; // funnel x position
+                    pan.pan.pan_location = PanLocation.Funnel;
+
+                    // find machine for this pan
+                    const machineIndex = machines.current.findIndex(m => m.cooking_protein?.protein_pan === pan.pan.protein_pan);
+                    if(machineIndex === -1) {
+                        console.log("No machine for pan", pan.pan.protein_pan);
+                        return;
+                    }
+                    // set the machine to cooking
+                    machines.current[machineIndex].cooking = false;
+                    machines.current[machineIndex].cooking_protein = undefined;
+                    console.log("Remove pan from machine", pan.pan.protein_pan, "at index", machineIndex);
+
                     break;
-                case 'cook':
-                    pan.next_y = 350;
-                    pan.next_x = pan.x;
+                }
+                case 'cook': {
+                    
+                    // determine if the pan is spicy
+                    const isSpicy = pan.pan.protein_pan.toLowerCase().includes('spicy');
+                    
+                    // find first available machine
+                    const machineIndex = machines.current.findIndex(m => m.cooking === false && m.open_mode === isSpicy);
+                    if(machineIndex === -1) {
+                        console.log("No available machine for pan", pan.pan.protein_pan);
+                        return;
+                    }
+                    // set the machine to cooking
+                    machines.current[machineIndex].cooking = true;
+                    machines.current[machineIndex].cooking_protein = pan.pan;
+                    machines.current[machineIndex].cooking_finish_time = new Date(currentSimulationTime.getTime() + (getCookTimeForProtein(pan.pan)) * 1000);
+
                     break;
+                }
                 case 'stop':
-                    pan.next_y = 150;
-                    pan.next_x = pan.x;
+                    pan.next_y = 75;
+                    pan.next_x = pan.start_x;
                     pan.pan.pan_location = PanLocation.Queue;
                     break;
             }
@@ -222,9 +285,9 @@ const ReplayCanvas: React.FC = () => {
             case 'start':
                 return `${getPanName(event.pan_cycle, false)} scanned in`;
             case 'fill':
-                return `${getPanName(event.pan_cycle, false)} finished cooking`;
+                return `${getPanName(event.pan_cycle, false)} walking`;
             case 'cook':
-                return `${getPanName(event.pan_cycle, false)} is cooking`;
+                return `${getPanName(event.pan_cycle, false)} are cooking`;
             case 'stop':
                 return `${getPanName(event.pan_cycle, false)} scanned out ${getScanOutDescription(event.pan_cycle.tzi_target_zone)}`;
             default:
@@ -238,6 +301,15 @@ const ReplayCanvas: React.FC = () => {
         data: PanEvent;
     };
 
+
+    type Machine = {
+        cooking: boolean;
+        cooking_protein: Pan | undefined;
+        open_mode: boolean;
+        cooking_finish_time?: Date;
+    }
+
+    const machines = useRef<Machine[]>([]);
 
     const notifications = useRef<Notification[]>([]);
 
@@ -313,6 +385,53 @@ const ReplayCanvas: React.FC = () => {
                 // Clear the canvas
                 context.fillStyle = '#e2e2e2';
                 context.fillRect(0, 0, canvas.width, canvas.height);
+
+                context.drawImage(images.current[shelf], canvas.width / 2 - 337, 120, 674, 10); // Draw shelf image
+                context.drawImage(images.current[funnel], canvas.width / 2 - 62, 240, 124, 56); // Draw funnel image
+
+                // draw hennies
+
+                // loop 6 times with a big gap between the first 3 and the second 3
+                const hennySpacing = 0;
+                const hennyGap = 100; // Big gap between the first 3 and the second 3
+                const hennyStartX = canvas.width / 2 - (6 * 100 + 5 * hennySpacing + hennyGap) / 2;
+                for (let i = 0; i < machines.current.length; i++) {
+                    const gapOffset = i >= 3 ? hennyGap : 0; // Add gap offset for the second group
+                    const x = hennyStartX + i * (100 + hennySpacing) + gapOffset;
+
+                    if(machines.current[i].open_mode) {
+                        context.drawImage(images.current[hennyBaseOpen], x, 130, 100, 214); // Draw henny base
+                    } else {
+
+                        context.drawImage(images.current[machines.current[i].cooking ? hennyBase : hennyBaseOpen], x, 130, 100, 214); // Draw henny base
+                        
+                        if(machines.current[i].cooking)
+                            context.drawImage(images.current[spindle], x + 50 - 36.5, 130 + 107 - 30, 74, 74); // Draw henny spindle
+                    }
+
+                    if(machines.current[i].cooking) {
+                        context.font = '10px CaeciliaCom';
+                        context.fillStyle = '#2e4c66';
+                        context.textAlign = 'center';
+                        
+                        // draw timer over machine
+                        context.drawImage(images.current[timer], x, 132, 100, 50); // Draw timer image
+                        context.fillText(
+                            machines.current[i].cooking_protein?.protein_name.toUpperCase() || "Unknown",
+                            x + 50,
+                            140+10 // Adjusted position for the timer text
+                        );
+
+                        context.font = '14px CaeciliaCom';
+                        const cookString = getTimeUntilMachineDone(machines.current[i], simulationTime);
+                        context.fillText(
+                            cookString,
+                            x + 50,
+                            140+25 // Adjusted position for the timer text
+                        );
+                    }
+                }
+
 
                 // Render notification for each event
                 events.forEach((event) => {

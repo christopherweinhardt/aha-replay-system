@@ -7,7 +7,7 @@ import skipForwardSVG from '../assets/play-forward-sharp.svg';
 import skipBackwardSVG from '../assets/play-back-sharp.svg';
 
 import { ReplayContext } from '../context';
-import { getTargetZoneString, Pan, PanCycle, PanEvent, PanEventType, PanLocation, PreProcessedEventData, TargetZone, Keyframe } from '../types';
+import { getTargetZoneString, Pan, PanCycle, PanEvent, PanEventType, PanLocation, PreProcessedEventData, TargetZone, Keyframe, getCookTimeForProtein } from '../types';
 
 export function ReplayTimeline() {
     const replayDataCtx = useContext(ReplayContext);
@@ -156,6 +156,14 @@ export function ReplayTimeline() {
             // diff between cycle start and sim start time in seconds
             const startDiff = Math.round((cycle.start_timestamp.getTime() - startTime.getTime()) / 1000);
             const endDiff = Math.round((cycle.stop_timestamp.getTime() - startTime.getTime()) / 1000);
+            
+            const cookDuration = getCookTimeForProtein(cycle);
+            const cook_timestamp = new Date(cycle.start_timestamp.getTime() - (cookDuration + 10) * 1000);
+            const cookDiff = Math.round((cook_timestamp.getTime() - startTime.getTime()) / 1000);
+            
+            const fill_timestamp = new Date(cycle.start_timestamp.getTime() - 10 * 1000);
+            const fillDiff = Math.round((fill_timestamp.getTime() - startTime.getTime()) / 1000);
+
             keyframes[startDiff].events.push({
                 event_type: PanEventType.Start,
                 timestamp: cycle.start_timestamp,
@@ -166,6 +174,17 @@ export function ReplayTimeline() {
                 timestamp: cycle.stop_timestamp,
                 pan_cycle: cycle,
             });
+            keyframes[cookDiff].events.push({
+                event_type: PanEventType.Cook,
+                timestamp: cook_timestamp,
+                pan_cycle: cycle,
+            });
+            keyframes[fillDiff].events.push({
+                event_type: PanEventType.Fill,
+                timestamp: fill_timestamp,
+                pan_cycle: cycle,
+            });
+
         });
         replayDataCtx.setKeyframeData({ keyframes, keyframe_count: keyframes.length });
     };

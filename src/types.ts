@@ -22,6 +22,7 @@ type Pan = {
 
 type PanDrawable = {
     pan: Pan;
+    start_x: number;
     x: number;
     y: number;
     next_x: number;
@@ -103,6 +104,16 @@ export function getScanOutDescription(targetZone: TargetZone): string {
             return "Late";
         default:
             return "";
+    }
+}
+
+export function getCookTimeForProtein(pan: PanCycle | Pan): number {
+    switch(pan.protein_name) {
+        case "filets" : return 280;
+        case "spicy" : return 280;
+        case "nuggets" : return 180;
+        case "spicy strips" : return 200;
+        default : return 0;
     }
 }
 
