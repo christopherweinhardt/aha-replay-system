@@ -147,9 +147,10 @@ const ReplayCanvas: React.FC = () => {
             switch (event.event_type) {
                 case 'start':
                     pan.next_x = pan.start_x;
-                    pan.next_y = 400;
+                    pan.next_y = 450;
                     pan.pan.pan_location = PanLocation.Holding;
                     pan.pan.expire_date = new Date(currentSimulationTime.getTime() + 20 * 60 * 1000); // Set expire date to 20 minutes from now
+                    currentBreader.current = event.pan_cycle.breader_id;
                     break;
                 case 'fill': {
                     pan.next_y = 290;
@@ -312,6 +313,8 @@ const ReplayCanvas: React.FC = () => {
     const machines = useRef<Machine[]>([]);
 
     const notifications = useRef<Notification[]>([]);
+
+    const currentBreader = useRef<string>("");
 
     function renderScene(events: PanEvent[], pans: PanDrawable[], simulationTime: Date, t: number = 0) {
         const drawKanban = (context: CanvasRenderingContext2D, pan: PanDrawable, simulationTime: Date, t: number) => {
@@ -488,6 +491,19 @@ const ReplayCanvas: React.FC = () => {
                     }
                 });
 
+                context.fillStyle = '#2e4c66';
+                context.font = 'bold 16px Apercu';
+                context.textAlign = 'right';
+                context.fillText(
+                    ` Breader: ${currentBreader.current.length > 0 ? currentBreader.current : ""}` + ` - #${replayData?.replayData?.location_id}`,
+                    canvas.width - 30,
+                    30 // Adjusted position for each notification
+                );
+                context.fillText(
+                    `${simulationTime.toLocaleTimeString('en-US', { timeStyle: 'short' })} - ` + `${replayData?.replayData?.date.toLocaleDateString('en-US')}`,
+                    canvas.width - 30,
+                    50 // Adjusted position for each notification
+                );
 
                 // Draw each pan
                 pans.forEach((panD) => {
@@ -503,7 +519,6 @@ const ReplayCanvas: React.FC = () => {
             width={800}
             height={600}
             className='replay-canvas'
-            style={{ border: '1px solid #000' }}
         />
     );
 };
