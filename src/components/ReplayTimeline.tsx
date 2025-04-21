@@ -70,12 +70,6 @@ export function ReplayTimeline() {
         }
     }
 
-    useEffect(() => {
-        if (replayDataCtx?.timelinePosition) {
-            replayDataCtx?.renderEvent?.(); // Call the render function when the timeline position changes
-        }
-    }, [replayDataCtx, replayDataCtx?.timelinePosition]);
-
     const handleSliderChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const inputValue = Number(event.target.value);
 
@@ -97,7 +91,9 @@ export function ReplayTimeline() {
         
         const clampedValue = Math.min(value, replayDataCtx.timelineResolution); // Clamp to max value
         replayDataCtx.setTimelinePosition(clampedValue);
-
+        replayDataCtx.timelinePosition = clampedValue;
+        
+        replayDataCtx.renderEvent?.(); // Call the renderEvents function with the new value
     }
     const intervalRef = useRef<number | undefined>(undefined);
     const latestTimelinePositionRef = useRef<number>(replayDataCtx?.timelinePosition || 0);

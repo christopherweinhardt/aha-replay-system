@@ -26,12 +26,29 @@ const ReplayCanvas: React.FC = () => {
     const images = useRef<{ [key: string]: HTMLImageElement }>({});
     useEffect(() => {
         const imageAssets = [hennyBase, hennyBaseOpen, kanban, kanban_expired, spindle, shelf, funnel, timer];
-        imageAssets.forEach((src) => {
-            const img = new Image();
-            img.src = src;
-            images.current[src] = img;
-        });
-    });
+        const loadImagesAsBase64 = async () => {
+            const promises = imageAssets.map((src) => {
+                return fetch(src)
+                    .then((response) => response.blob())
+                    .then((blob) => {
+                        return new Promise<string>((resolve) => {
+                            const reader = new FileReader();
+                            reader.onloadend = () => resolve(reader.result as string);
+                            reader.readAsDataURL(blob);
+                        });
+                    });
+            });
+
+            const base64Images = await Promise.all(promises);
+            imageAssets.forEach((src, index) => {
+                const img = new Image();
+                img.src = base64Images[index];
+                images.current[src] = img;
+            });
+        };
+
+        loadImagesAsBase64();
+    }, []);
 
     // load font assets
     useEffect(() => {
@@ -197,43 +214,59 @@ const ReplayCanvas: React.FC = () => {
     }
 
     function calculateStateFromStartToFrame(frame: number) {
-        if(!replayData) return console.log("Replay data is undefined");
-        if(!replayData.replayData) return console.log("Replay data is undefined");
-        if(!replayData.keyframeData) return console.log("Keyframe data is undefined");
-        if(!replayData.pans) return console.log("Pans data is undefined");
+        const process: Promise<void> = new Promise((resolve) => {
+            if(!replayData) return console.log("Replay data is undefined");
+            if(!replayData.replayData) return console.log("Replay data is undefined");
+            if(!replayData.keyframeData) return console.log("Keyframe data is undefined");
+            if(!replayData.pans) return console.log("Pans data is undefined");
+    
+    
+            let startFrame = 0;
+    
+            
+    
+            // if we are before the desired frame, start from our current position, otherwise start from the beginning
+            if(replayData.timelinePosition < frame) {
+                startFrame = Math.floor(replayData.timelinePosition);
+            } else {
+                startFrame = 0;
+                initPans();
+            }
+    
+            // loop through all frames until the desired frame
+            for(let i = startFrame; i < frame; i++) {
+                const keyframe = replayData.keyframeData?.keyframes[i];
+                // for each event
+                keyframe.events.forEach((event: PanEvent) => {
+                    const pan = pans.current.find(p => p.pan.protein_pan === event.pan_cycle.protein_pan);
+    
+                    if(!pan) return console.log("Pan not found", event.pan_cycle.protein_pan);
+                    handleEvent(pan, event, i);
+    
+                    // evaluate the "next" state of the pan
+                    if(pan.next_x > 0 || pan.next_y > 0) {
+                        pan.x = pan.next_x;
+                        pan.y = pan.next_y;
+                        pan.next_x = 0;
+                        pan.next_y = 0;
+                    }
+                });
+            }
+            resolve();
+        });
 
-
-        let startFrame = 0;
-
-        // if we are before the desired frame, start from our current position, otherwise start from the beginning
-        if(replayData.timelinePosition < frame) {
-            startFrame = Math.floor(replayData.timelinePosition);
-        } else {
-            startFrame = 0;
-            initPans();
-        }
-
-        // loop through all frames until the desired frame
-        for(let i = startFrame; i < frame; i++) {
-            const keyframe = replayData.keyframeData?.keyframes[i];
-            // for each event
-            keyframe.events.forEach((event: PanEvent) => {
-                const pan = pans.current.find(p => p.pan.protein_pan === event.pan_cycle.protein_pan);
-
-                if(!pan) return console.log("Pan not found", event.pan_cycle.protein_pan);
-                handleEvent(pan, event, i);
-
-                // evaluate the "next" state of the pan
-                if(pan.next_x > 0 || pan.next_y > 0) {
-                    pan.x = pan.next_x;
-                    pan.y = pan.next_y;
-                    pan.next_x = 0;
-                    pan.next_y = 0;
-                }
-            });
-        }
+        process.then(() => {
+            
+            // if current animation, cancel
+            if(animationID.current) {
+                cancelAnimationFrame(animationID.current);
+                animationID.current = null;
+            }
+            renderCanvas();
+        });
     }
 
+    const animationID = useRef<number | null>(null);
     function renderCanvas() {
         
         if(!replayData) return console.log("Replay data is undefined");
@@ -242,9 +275,7 @@ const ReplayCanvas: React.FC = () => {
         if(!replayData.pans) return console.log("Pans data is undefined");
 
         const keyframe = replayData.keyframeData?.keyframes[Math.floor(replayData.timelinePosition)];
-        // get current sim time
-        const currentSimulationTime = new Date(replayData.startTime.getTime() + replayData.timelinePosition * 1000);
-
+        
         // for each event
         keyframe.events.forEach((event: PanEvent) => {
             const pan = pans.current.find(p => p.pan.protein_pan === event.pan_cycle.protein_pan);
@@ -252,8 +283,11 @@ const ReplayCanvas: React.FC = () => {
             handleEvent(pan, event, replayData.timelinePosition);
         });
 
+        // get current sim time
+        const simulationTime = new Date(replayData.startTime.getTime() + replayData.timelinePosition * 1000);
+
         if (keyframe.events.length == 0) {
-            renderScene(keyframe.events, pans.current, currentSimulationTime, 0);
+            renderScene(keyframe.events, pans.current, 0, simulationTime);
         } else {
             const startTime = Date.now();
             const duration = 200; // Animation duration in milliseconds
@@ -261,9 +295,9 @@ const ReplayCanvas: React.FC = () => {
                 const currentTime = Date.now();
                 const elapsedTime = currentTime - startTime;
                 const t = Math.min(elapsedTime / duration, 1); // Normalize t to [0, 1]
-                renderScene(keyframe.events, pans.current, currentSimulationTime, t);
+                renderScene(keyframe.events, pans.current, t, simulationTime);
                 if (t < 1) {
-                    requestAnimationFrame(animate);
+                    animationID.current = requestAnimationFrame(animate);
                 } else {
                     // At the end of the animation, set all the pans' next values to the real deal
                     pans.current.forEach((pan) => {
@@ -315,8 +349,10 @@ const ReplayCanvas: React.FC = () => {
 
     const currentBreader = useRef<string>("None");
 
-    function renderScene(events: PanEvent[], pans: PanDrawable[], simulationTime: Date, t: number = 0) {
-        const drawKanban = (context: CanvasRenderingContext2D, pan: PanDrawable, simulationTime: Date, t: number) => {
+    function renderScene(events: PanEvent[], pans: PanDrawable[], t: number = 0, simulationTime: Date) {
+        if(!replayData) return console.log("Replay data is undefined");
+        const drawKanban = (context: CanvasRenderingContext2D, pan: PanDrawable, t: number) => {
+            if(!replayData) return console.log("Replay data is undefined");
             const width = 80;
             if (context) {
     
@@ -326,17 +362,17 @@ const ReplayCanvas: React.FC = () => {
                 if (pan.pan.pan_location === PanLocation.Holding) {
                     const isExpired = simulationTime.getTime() >= pan.pan.expire_date.getTime();
                     img = isExpired ? images.current[kanban_expired] : images.current[kanban];
+                    context.fillStyle = isExpired ? 'white' : '#2e4c66';
                 } else {
                     img = images.current[kanban];
+                    context.fillStyle = '#2e4c66';
                 }
     
                 // set font
                 context.font = '10px CaeciliaCom';
-                context.fillStyle = '#2e4c66';
                 
                 if(pan.next_x > 0 || pan.next_y > 0) {
                     context.drawImage(img, interpolatePositions(pan.x, pan.next_x, t), interpolatePositions(pan.y, pan.next_y, t), width, 50); // Example size and position
-                    context.fillStyle = '#2e4c66';
                     context.textAlign = 'center';
                     context.textBaseline = 'middle';
                     context.fillText(
@@ -357,7 +393,6 @@ const ReplayCanvas: React.FC = () => {
                     }
                 } else {
                     context.drawImage(img, pan.x, pan.y, width, 50); // Example size and position
-                    context.fillStyle = '#2e4c66';
                     context.textAlign = 'center';
                     context.textBaseline = 'middle';
                     context.fillText(
@@ -377,6 +412,7 @@ const ReplayCanvas: React.FC = () => {
                         );
                     }
                 }
+                context.fillStyle = '#e2e2e2';
             }
         }
 
@@ -506,19 +542,26 @@ const ReplayCanvas: React.FC = () => {
 
                 // Draw each pan
                 pans.forEach((panD) => {
-                    drawKanban(context, panD, simulationTime, t);
+                    drawKanban(context, panD, t);
                 });
             }
         }
     }
 
     return (
-        <canvas
-            ref={canvasRef}
-            width={800}
-            height={600}
-            className='replay-canvas'
-        />
+        <>
+            <canvas
+                ref={canvasRef}
+                width={800}
+                height={600}
+                className='replay-canvas'
+            />
+            
+            <button onClick={() => {
+                renderCanvas();
+            }
+            }>Render</button>
+        </>
     );
 };
 
