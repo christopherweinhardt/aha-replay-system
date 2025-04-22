@@ -23,6 +23,7 @@ interface ReplayContextType {
     endTime: Date;
     setEndTime: (value: Date) => void;
 
+    initVirtualPans?: () => void;
     renderEvent?: () => void;
     processData?: () => void;
     jumpToFrame?: (frame: number) => void;

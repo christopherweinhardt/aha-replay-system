@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useContext } from 'react';
 import './ReplayViewport.css'
 import { ReplayContext } from '../context';
-import { Pan, PanEvent, PanLocation, Keyframe, PanDrawable, PanCycle, getScanOutDescription, PanEventType, getCookTimeForProtein } from '../types';
+import { PanEvent, PanLocation, PanDrawable, Notification, getScanOutDescription, PanEventType, getCookTimeForProtein, getPanName, Machine, getTimeUntilPanExpires, getTimeUntilMachineDone } from '../types';
 
 import hennyBase from '../assets/henny_base.png';
 import hennyBaseOpen from '../assets/henny_base_open.png';
@@ -11,20 +11,41 @@ import spindle from '../assets/spindle.png';
 import shelf from '../assets/shelf.png';
 import funnel from '../assets/funnel.png';
 import timer from '../assets/timer.png';
+import { interpolatePositions } from '../math';
 
 const ReplayCanvas: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
+    const canvasWidth = 2400;
+    const canvasHeight = 986;
 
-    const replayData = useContext(ReplayContext);
+    const renderOffsetX = 125;
 
-    if (replayData) {
-        replayData.renderEvent = () => {renderCanvas()};
-        replayData.jumpToFrame = calculateStateFromStartToFrame;
+    const context = useContext(ReplayContext);
+    
+    const virtualPans = useRef<PanDrawable[]>([]);
+    const virtualMachines = useRef<Machine[]>([]);
+    const notifications = useRef<Notification[]>([]);
+    const currentBreader = useRef<string>("None");
+
+    if (context) {
+        context.renderEvent = () => {renderCanvas()};
+        context.jumpToFrame = calculateStateFromStartToFrame;
+        context.initVirtualPans = initPans;
     }
 
     // load image assets
     const images = useRef<{ [key: string]: HTMLImageElement }>({});
     useEffect(() => {
+        console.log("Loading assets...");
+        const cae = new FontFace('CaeciliaCom', "url(assets/caeciliacom-bold.ttf)");
+        const ape = new FontFace('Apercu', "url(assets/caeciliacom-bold.ttf)");
+        cae.load().then(() => {
+            document.fonts.add(cae);
+        });
+        ape.load().then(() => {
+            document.fonts.add(ape);
+        });
+
         const imageAssets = [hennyBase, hennyBaseOpen, kanban, kanban_expired, spindle, shelf, funnel, timer];
         const loadImagesAsBase64 = async () => {
             const promises = imageAssets.map((src) => {
@@ -45,89 +66,26 @@ const ReplayCanvas: React.FC = () => {
                 img.src = base64Images[index];
                 images.current[src] = img;
             });
+
+            console.log("Assets loaded");
         };
 
         loadImagesAsBase64();
     }, []);
 
-    // load font assets
-    useEffect(() => {
-        const cae = new FontFace('CaeciliaCom', "url(assets/caeciliacom-bold.ttf)");
-        const ape = new FontFace('Apercu', "url(assets/caeciliacom-bold.ttf)");
-        cae.load().then(() => {
-            document.fonts.add(cae);
-        });
-        ape.load().then(() => {
-            document.fonts.add(ape);
-        });
-    }, []);
-
-    function getPanName(input: PanCycle | Pan | undefined, truncate = true): string {
-        if (!input) return "Unknown"; // Handle undefined input
-
-        const nameParts = input.protein_pan.split(" ");
-        const panNumber = nameParts[nameParts.length - 1]; // Get the last part (pan number)
-        const proteinName = input.protein_name.toUpperCase();
-        // Truncate protein name "SPICY STRIPS" to "SPICY ST..."
-        let truncatedName;
-
-        if(truncate) {
-            truncatedName = proteinName.length > 10 ? proteinName.substring(0, 8) + "..." : proteinName;
-        } else {
-            truncatedName = proteinName;
-        }
-
-        return `${truncatedName} ${panNumber}`; // Combine them
-    }
-
-    //interpolate positions
-    function interpolatePositions(start: number, end: number, fraction: number): number {
-        return start + (end - start) * easeInOutCubic(fraction);
-    }
-
-    function easeInOutCubic(t: number): number {
-        return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-    }
-
-    function getTimeUntilPanExpires(pan: Pan, simulationTime: Date) {
-        const timeUntilExpire = pan.expire_date.getTime() - simulationTime.getTime();
-        const totalSeconds = Math.floor(timeUntilExpire / 1000);
-        const clampedSeconds = Math.min(totalSeconds, 20 * 60); // Clamp at 20 minutes (1200 seconds)
-        const minutes = Math.floor(clampedSeconds / 60);
-        const seconds = Math.abs(clampedSeconds % 60); // Allow negative time
-        const result = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-        return result;
-    }
-
-    function getTimeUntilMachineDone(machine: Machine, simulationTime: Date) {
-        if(!machine.cooking_protein) return "Unknown";
-        if(!machine.cooking_finish_time) return "Unknown";
-
-        // get finish 
-        const timeUntilFill = machine.cooking_finish_time?.getTime() - simulationTime.getTime();
-
-        const totalSeconds = Math.floor(timeUntilFill / 1000);
-        const minutes = Math.floor(totalSeconds / 60);
-        const seconds = Math.abs(totalSeconds % 60);
-        const result = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-        return result;
-    }
-
-    const pans = useRef<PanDrawable[]>([]);
-
     function initPans() {
-        if (replayData) {
-            const width = 80;
+        if (context) {
+            const width = 160;
             const spacing = 0; // Add spacing between pans
-            const panCount = replayData.pans?.length || 0;
+            const panCount = context.pans?.length || 0;
 
             const totalWidth = panCount * width + (panCount - 1) * spacing;
 
-            pans.current = replayData?.pans?.map((pan, index) => ({
+            virtualPans.current = context?.pans?.map((pan, index) => ({
                 pan: pan,
-                x: (400 - totalWidth/2) + index * (width + spacing),
-                start_x: (400 - totalWidth/2) + index * (width + spacing),
-                y: 75,
+                x: (canvasWidth/2 - totalWidth/2) + index * (width + spacing),
+                start_x: (canvasWidth/2 - totalWidth/2) + index * (width + spacing),
+                y: 74,
                 next_pan: {
                     ...pan
                 },
@@ -135,14 +93,14 @@ const ReplayCanvas: React.FC = () => {
                 next_y: 0,
             })) || [];
             
-            pans.current.forEach((pan) => {
+            virtualPans.current.forEach((pan) => {
                 pan.pan.pan_location = PanLocation.Queue;
             });
 
-            machines.current = [];
+            virtualMachines.current = [];
             // fill machines with 6 states
             for(let i = 0; i < 6; i++) {
-                machines.current.push({
+                virtualMachines.current.push({
                     cooking: false,
                     cooking_protein: undefined,
                     open_mode: ((i<3) ? true : false),
@@ -151,38 +109,34 @@ const ReplayCanvas: React.FC = () => {
         }
     }
 
-    useEffect(() => {
-        initPans();
-    }, [replayData?.pans]);
-
     function handleEvent(pan: PanDrawable, event: PanEvent, currentFrame: number) {
-        if(!replayData) return console.log("Replay data is undefined");
+        if(!context) return console.log("Replay data is undefined");
 
         // get current sim time
-        const currentSimulationTime = new Date(replayData.startTime.getTime() + currentFrame * 1000);
+        const currentSimulationTime = new Date(context.startTime.getTime() + currentFrame * 1000);
         if (pan) {
             switch (event.event_type) {
                 case 'start':
                     pan.next_x = pan.start_x;
-                    pan.next_y = 450;
+                    pan.next_y = 804;
                     pan.pan.pan_location = PanLocation.Holding;
                     pan.pan.expire_date = new Date(currentSimulationTime.getTime() + 20 * 60 * 1000); // Set expire date to 20 minutes from now
                     currentBreader.current = event.pan_cycle.breader_id;
                     break;
                 case 'fill': {
-                    pan.next_y = 290;
-                    pan.next_x = 400 - 40; // funnel x position
+                    pan.next_y = 580;
+                    pan.next_x = canvasWidth/2 - 80; // funnel x position
                     pan.pan.pan_location = PanLocation.Funnel;
 
                     // find machine for this pan
-                    const machineIndex = machines.current.findIndex(m => m.cooking_protein?.protein_pan === pan.pan.protein_pan);
+                    const machineIndex = virtualMachines.current.findIndex(m => m.cooking_protein?.protein_pan === pan.pan.protein_pan);
                     if(machineIndex === -1) {
                         console.log("No machine for pan", pan.pan.protein_pan);
                         return;
                     }
                     // set the machine to cooking
-                    machines.current[machineIndex].cooking = false;
-                    machines.current[machineIndex].cooking_protein = undefined;
+                    virtualMachines.current[machineIndex].cooking = false;
+                    virtualMachines.current[machineIndex].cooking_protein = undefined;
 
                     break;
                 }
@@ -192,53 +146,59 @@ const ReplayCanvas: React.FC = () => {
                     const isSpicy = pan.pan.protein_pan.toLowerCase().includes('spicy');
                     
                     // find first available machine
-                    const machineIndex = machines.current.findIndex(m => m.cooking === false && m.open_mode === isSpicy);
+                    const machineIndex = virtualMachines.current.findIndex(m => m.cooking === false && m.open_mode === isSpicy);
                     if(machineIndex === -1) {
                         console.log("No available machine for pan", pan.pan.protein_pan);
                         return;
                     }
                     // set the machine to cooking
-                    machines.current[machineIndex].cooking = true;
-                    machines.current[machineIndex].cooking_protein = pan.pan;
-                    machines.current[machineIndex].cooking_finish_time = new Date(currentSimulationTime.getTime() + (getCookTimeForProtein(pan.pan)) * 1000);
+                    virtualMachines.current[machineIndex].cooking = true;
+                    virtualMachines.current[machineIndex].cooking_protein = pan.pan;
+                    virtualMachines.current[machineIndex].cooking_finish_time = new Date(currentSimulationTime.getTime() + (getCookTimeForProtein(pan.pan)) * 1000);
 
                     break;
                 }
                 case 'stop':
-                    pan.next_y = 75;
+                    pan.next_y = 74;
                     pan.next_x = pan.start_x;
                     pan.pan.pan_location = PanLocation.Queue;
                     break;
             }
+            // Check if the event is already in the notifications
+            const isAlreadyNotified = notifications.current.some(notification => notification.message === getEventNotificationString(event));
+            if (isAlreadyNotified) return; // Skip if already notified
+
+            notifications.current.push({
+                message: getEventNotificationString(event),
+                duration: 600, // Duration in frames,
+                data: event,
+            });
         }
     }
 
     function calculateStateFromStartToFrame(frame: number) {
         const process: Promise<void> = new Promise((resolve) => {
-            if(!replayData) return console.log("Replay data is undefined");
-            if(!replayData.replayData) return console.log("Replay data is undefined");
-            if(!replayData.keyframeData) return console.log("Keyframe data is undefined");
-            if(!replayData.pans) return console.log("Pans data is undefined");
-    
-    
+            if(!context) return console.log("Replay data is undefined");
+            if(!context.replayData) return console.log("Replay data is undefined");
+            if(!context.keyframeData) return console.log("Keyframe data is undefined");
+            if(!context.pans) return console.log("Pans data is undefined");
             let startFrame = 0;
     
-            
-    
             // if we are before the desired frame, start from our current position, otherwise start from the beginning
-            if(replayData.timelinePosition < frame) {
-                startFrame = Math.floor(replayData.timelinePosition);
+            if(context.timelinePosition < frame) {
+                startFrame = Math.floor(context.timelinePosition);
             } else {
                 startFrame = 0;
                 initPans();
+                notifications.current = []; // Clear notifications
             }
     
             // loop through all frames until the desired frame
             for(let i = startFrame; i < frame; i++) {
-                const keyframe = replayData.keyframeData?.keyframes[i];
+                const keyframe = context.keyframeData?.keyframes[i];
                 // for each event
                 keyframe.events.forEach((event: PanEvent) => {
-                    const pan = pans.current.find(p => p.pan.protein_pan === event.pan_cycle.protein_pan);
+                    const pan = virtualPans.current.find(p => p.pan.protein_pan === event.pan_cycle.protein_pan);
     
                     if(!pan) return console.log("Pan not found", event.pan_cycle.protein_pan);
                     handleEvent(pan, event, i);
@@ -249,6 +209,14 @@ const ReplayCanvas: React.FC = () => {
                         pan.y = pan.next_y;
                         pan.next_x = 0;
                         pan.next_y = 0;
+                    }
+                });
+                
+                // remove 1 duration
+                notifications.current.forEach((notification) => {
+                    notification.duration -= 1; // Decrease duration
+                    if(notification.duration <= 0) {
+                        notifications.current.splice(notifications.current.indexOf(notification), 1); // Remove expired notification
                     }
                 });
             }
@@ -269,25 +237,34 @@ const ReplayCanvas: React.FC = () => {
     const animationID = useRef<number | null>(null);
     function renderCanvas() {
         
-        if(!replayData) return console.log("Replay data is undefined");
-        if(!replayData.replayData) return console.log("Replay data is undefined"); 
-        if(!replayData.keyframeData) return console.log("Keyframe data is undefined");
-        if(!replayData.pans) return console.log("Pans data is undefined");
+        if(!context) return console.log("Replay data is undefined");
+        if(!context.replayData) return console.log("Replay data is undefined"); 
+        if(!context.keyframeData) return console.log("Keyframe data is undefined");
+        if(!context.pans) return console.log("Pans data is undefined");
 
-        const keyframe = replayData.keyframeData?.keyframes[Math.floor(replayData.timelinePosition)];
+        // wait for images to load, try again in 100ms if not loaded yet
+        if(!images.current[kanban]) {
+            console.log("Images not loaded yet, trying again in 100ms...");
+            setTimeout(() => {
+                renderCanvas();
+            }, 100);
+            return;
+        }
+
+        const keyframe = context.keyframeData?.keyframes[Math.floor(context.timelinePosition)];
         
         // for each event
         keyframe.events.forEach((event: PanEvent) => {
-            const pan = pans.current.find(p => p.pan.protein_pan === event.pan_cycle.protein_pan);
+            const pan = virtualPans.current.find(p => p.pan.protein_pan === event.pan_cycle.protein_pan);
             if(!pan) return console.log("Pan not found", event.pan_cycle.protein_pan);
-            handleEvent(pan, event, replayData.timelinePosition);
+            handleEvent(pan, event, context.timelinePosition);
         });
 
         // get current sim time
-        const simulationTime = new Date(replayData.startTime.getTime() + replayData.timelinePosition * 1000);
+        const simulationTime = new Date(context.startTime.getTime() + context.timelinePosition * 1000);
 
         if (keyframe.events.length == 0) {
-            renderScene(keyframe.events, pans.current, 0, simulationTime);
+            renderScene(virtualPans.current, 0, simulationTime);
         } else {
             const startTime = Date.now();
             const duration = 200; // Animation duration in milliseconds
@@ -295,12 +272,12 @@ const ReplayCanvas: React.FC = () => {
                 const currentTime = Date.now();
                 const elapsedTime = currentTime - startTime;
                 const t = Math.min(elapsedTime / duration, 1); // Normalize t to [0, 1]
-                renderScene(keyframe.events, pans.current, t, simulationTime);
+                renderScene(virtualPans.current, t, simulationTime);
                 if (t < 1) {
                     animationID.current = requestAnimationFrame(animate);
                 } else {
                     // At the end of the animation, set all the pans' next values to the real deal
-                    pans.current.forEach((pan) => {
+                    virtualPans.current.forEach((pan) => {
                         if(pan.next_x > 0)
                             pan.x = pan.next_x;
                         pan.next_x = 0;
@@ -329,32 +306,12 @@ const ReplayCanvas: React.FC = () => {
         }
     }
 
-    type Notification = {
-        message: string;
-        duration: number; // Duration in frames
-        data: PanEvent;
-    };
-
-
-    type Machine = {
-        cooking: boolean;
-        cooking_protein: Pan | undefined;
-        open_mode: boolean;
-        cooking_finish_time?: Date;
-    }
-
-    const machines = useRef<Machine[]>([]);
-
-    const notifications = useRef<Notification[]>([]);
-
-    const currentBreader = useRef<string>("None");
-
-    function renderScene(events: PanEvent[], pans: PanDrawable[], t: number = 0, simulationTime: Date) {
-        if(!replayData) return console.log("Replay data is undefined");
-        const drawKanban = (context: CanvasRenderingContext2D, pan: PanDrawable, t: number) => {
-            if(!replayData) return console.log("Replay data is undefined");
-            const width = 80;
-            if (context) {
+    function renderScene(pans: PanDrawable[], t: number = 0, simulationTime: Date) {
+        if(!context) return console.log("Replay data is undefined");
+        const drawKanban = (ctx2D: CanvasRenderingContext2D, pan: PanDrawable, t: number) => {
+            if(!context) return console.log("Replay data is undefined");
+            const width = 160;
+            if (ctx2D) {
     
                 // Draw the kanban image
                 let img;
@@ -362,187 +319,203 @@ const ReplayCanvas: React.FC = () => {
                 if (pan.pan.pan_location === PanLocation.Holding) {
                     const isExpired = simulationTime.getTime() >= pan.pan.expire_date.getTime();
                     img = isExpired ? images.current[kanban_expired] : images.current[kanban];
-                    context.fillStyle = isExpired ? 'white' : '#2e4c66';
+                    ctx2D.fillStyle = isExpired ? 'white' : '#2e4c66';
                 } else {
                     img = images.current[kanban];
-                    context.fillStyle = '#2e4c66';
+                    ctx2D.fillStyle = '#2e4c66';
                 }
     
                 // set font
-                context.font = '10px CaeciliaCom';
+                ctx2D.font = '20px CaeciliaCom';
                 
                 if(pan.next_x > 0 || pan.next_y > 0) {
-                    context.drawImage(img, interpolatePositions(pan.x, pan.next_x, t), interpolatePositions(pan.y, pan.next_y, t), width, 50); // Example size and position
-                    context.textAlign = 'center';
-                    context.textBaseline = 'middle';
-                    context.fillText(
+                    ctx2D.drawImage(img, renderOffsetX + interpolatePositions(pan.x, pan.next_x, t), interpolatePositions(pan.y, pan.next_y, t), width, 100); // Example size and position
+                    ctx2D.textAlign = 'center';
+                    ctx2D.textBaseline = 'middle';
+                    ctx2D.fillText(
                         getPanName(pan.pan),
-                        interpolatePositions(pan.x, pan.next_x, t) + width / 2,
-                        interpolatePositions(pan.y, pan.next_y, t) + 18
+                        renderOffsetX + interpolatePositions(pan.x, pan.next_x, t) + width / 2,
+                        interpolatePositions(pan.y, pan.next_y, t) + 36
                     ); // Centered text position
     
                     // set font
-                    context.font = '14px CaeciliaCom';
+                    ctx2D.font = '28px CaeciliaCom';
                     if(pan.pan.pan_location === PanLocation.Holding) {
                         const expireString = getTimeUntilPanExpires(pan.pan, simulationTime);
-                        context.fillText(
+                        ctx2D.fillText(
                             expireString,
-                            interpolatePositions(pan.x, pan.next_x, t) + width / 2,
-                            interpolatePositions(pan.y, pan.next_y, t) + 32 // Adjusted position for the second line
+                            renderOffsetX + interpolatePositions(pan.x, pan.next_x, t) + width / 2,
+                            interpolatePositions(pan.y, pan.next_y, t) + 64 // Adjusted position for the second line
                         );
                     }
                 } else {
-                    context.drawImage(img, pan.x, pan.y, width, 50); // Example size and position
-                    context.textAlign = 'center';
-                    context.textBaseline = 'middle';
-                    context.fillText(
+                    ctx2D.drawImage(img, renderOffsetX + pan.x, pan.y, width, 100); // Example size and position
+                    ctx2D.textAlign = 'center';
+                    ctx2D.textBaseline = 'middle';
+                    ctx2D.fillText(
                         getPanName(pan.pan),
-                        pan.x + width / 2,
-                        pan.y + 18
+                        renderOffsetX + pan.x + width / 2,
+                        pan.y + 36
                     ); // Centered text position
     
                     const expireString = getTimeUntilPanExpires(pan.pan, simulationTime);
                     // set font
-                    context.font = '14px CaeciliaCom';
+                    ctx2D.font = '28px CaeciliaCom';
                     if(pan.pan.pan_location === PanLocation.Holding) {
-                        context.fillText(
+                        ctx2D.fillText(
                             expireString,
-                            pan.x + width / 2,
-                            pan.y + 32 // Adjusted position for the second line
+                            renderOffsetX + pan.x + width / 2,
+                            pan.y + 64 // Adjusted position for the second line
                         );
                     }
                 }
-                context.fillStyle = '#e2e2e2';
+                ctx2D.fillStyle = '#e2e2e2';
             }
         }
 
         const canvas = canvasRef.current;
         if (canvas) {
-            const context = canvas.getContext('2d');
-            if (context) {
+            const ctx2D = canvas.getContext('2d');
+            if (ctx2D) {
                 // Clear the canvas
-                context.fillStyle = '#e2e2e2';
-                context.fillRect(0, 0, canvas.width, canvas.height);
+                ctx2D.fillStyle = '#e2e2e2';
+                ctx2D.fillRect(0, 0, canvas.width, canvas.height);
 
-                context.drawImage(images.current[shelf], canvas.width / 2 - 337, 120, 674, 10); // Draw shelf image
-                context.drawImage(images.current[funnel], canvas.width / 2 - 62, 240, 124, 56); // Draw funnel image
+                ctx2D.drawImage(images.current[shelf], renderOffsetX + canvas.width / 2 - 674, 164, 1348, 20); // Draw shelf image
+                ctx2D.drawImage(images.current[funnel], renderOffsetX + canvas.width / 2 - 124, 480, 248, 112); // Draw funnel image
 
                 // draw hennies
 
                 // loop 6 times with a big gap between the first 3 and the second 3
                 const hennySpacing = 0;
-                const hennyGap = 100; // Big gap between the first 3 and the second 3
-                const hennyStartX = canvas.width / 2 - (6 * 100 + 5 * hennySpacing + hennyGap) / 2;
-                for (let i = 0; i < machines.current.length; i++) {
+                const hennyGap = 200; // Big gap between the first 3 and the second 3
+                const hennyStartX = canvas.width / 2 - (6 * 200 + 5 * hennySpacing + hennyGap) / 2;
+                for (let i = 0; i < virtualMachines.current.length; i++) {
                     const gapOffset = i >= 3 ? hennyGap : 0; // Add gap offset for the second group
-                    const x = hennyStartX + i * (100 + hennySpacing) + gapOffset;
+                    const x = hennyStartX + i * (hennyGap + hennySpacing) + gapOffset;
 
-                    if(machines.current[i].open_mode) {
-                        context.drawImage(images.current[hennyBaseOpen], x, 130, 100, 214); // Draw henny base
+                    if(virtualMachines.current[i].open_mode) {
+                        ctx2D.drawImage(images.current[hennyBaseOpen], renderOffsetX + x, 260, 200, 428); // Draw henny base
                     } else {
 
-                        context.drawImage(images.current[machines.current[i].cooking ? hennyBase : hennyBaseOpen], x, 130, 100, 214); // Draw henny base
+                        ctx2D.drawImage(images.current[virtualMachines.current[i].cooking ? hennyBase : hennyBaseOpen], renderOffsetX + x, 260, 200, 428); // Draw henny base
                         
-                        if(machines.current[i].cooking)
-                            context.drawImage(images.current[spindle], x + 50 - 36.5, 130 + 107 - 30, 74, 74); // Draw henny spindle
+                        if(virtualMachines.current[i].cooking)
+                            ctx2D.drawImage(images.current[spindle], renderOffsetX + x + 100 - 74.5, 260 + 214 - 54, 148, 148); // Draw henny spindle
                     }
 
-                    if(machines.current[i].cooking) {
-                        context.font = '10px CaeciliaCom';
-                        context.fillStyle = '#2e4c66';
-                        context.textAlign = 'center';
+                    if(virtualMachines.current[i].cooking) {
+                        ctx2D.font = '20px CaeciliaCom';
+                        ctx2D.fillStyle = '#2e4c66';
+                        ctx2D.textAlign = 'center';
                         
                         // draw timer over machine
-                        context.drawImage(images.current[timer], x, 132, 100, 50); // Draw timer image
-                        context.fillText(
-                            machines.current[i].cooking_protein?.protein_name.toUpperCase() || "Unknown",
-                            x + 50,
-                            140+10 // Adjusted position for the timer text
+                        ctx2D.drawImage(images.current[timer], renderOffsetX + x, 264, 200, 100); // Draw timer image
+                        ctx2D.fillText(
+                            virtualMachines.current[i].cooking_protein?.protein_name.toUpperCase() || "Unknown",
+                            renderOffsetX + x + 100,
+                            300 // Adjusted position for the timer text
                         );
 
-                        context.font = '14px CaeciliaCom';
-                        const cookString = getTimeUntilMachineDone(machines.current[i], simulationTime);
-                        context.fillText(
+                        ctx2D.font = '28px CaeciliaCom';
+                        const cookString = getTimeUntilMachineDone(virtualMachines.current[i], simulationTime);
+                        ctx2D.fillText(
                             cookString,
-                            x + 50,
-                            140+25 // Adjusted position for the timer text
+                            renderOffsetX + x + 100,
+                            328 // Adjusted position for the timer text
                         );
                     }
                 }
 
-
-                // Render notification for each event
-                events.forEach((event) => {
-                    // Check if the event is already in the notifications
-                    const isAlreadyNotified = notifications.current.some(notification => notification.message === getEventNotificationString(event));
-                    if (isAlreadyNotified) return; // Skip if already notified
-
-                    notifications.current.push({
-                        message: getEventNotificationString(event),
-                        duration: 100, // Duration in frames,
-                        data: event,
-                    });
-                });
-
                 // Draw notifications
-                notifications.current.forEach((notification, index) => {
+                notifications.current.slice().reverse().forEach((notification, index) => {
 
-                    context.fillStyle = '#2e4c66'; 
+                    ctx2D.fillStyle = '#2e4c66'; 
                     if (notification.data.event_type === PanEventType.Stop) {
                         const event = notification.data as PanEvent;
                         
                         // set color based on TargetZone
                         switch (event.pan_cycle.tzi_target_zone) {
                             case 0:
-                                context.fillStyle = '#dd0031'; // Too Little
+                                ctx2D.fillStyle = '#dd0031'; // Too Little
                                 break;
                             case 1:
-                                context.fillStyle = '#ffb549'; // Slightly Too Little
+                                ctx2D.fillStyle = '#d99a3d'; // Slightly Too Little (darkened for better contrast)
                                 break;
                             case 2:
-                                context.fillStyle = '#249e6b'; // On Target
+                                ctx2D.fillStyle = '#249e6b'; // On Target
                                 break;
                             case 3:
-                                context.fillStyle = '#ffb549'; // Slightly Too Much
+                                ctx2D.fillStyle = '#d99a3d'; // Slightly Too Much
                                 break;
                             case 4:
-                                context.fillStyle = '#dd0031'; // Too Much
+                                ctx2D.fillStyle = '#dd0031'; // Too Much
                                 break;
                             default:
-                                context.fillStyle = '#2e4c66'; // Unknown
+                                ctx2D.fillStyle = '#2e4c66'; // Unknown
                         }
                     }
 
-                    context.font = 'bold 16px Apercu';
-                    context.textAlign = 'left';
-                    context.fillText(
-                        notification.message,
-                        30,
-                        30 + index * 20 // Adjusted position for each notification
+                    ctx2D.font = 'bold 24px Apercu';
+                    ctx2D.textAlign = 'left';
+
+                    // Add scan date before the notification message
+                    const scanDate = notification.data.timestamp.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                    
+                    ctx2D.fillText(
+                        `${notification.message}`,
+                        172 + 20, // Add spacing for the dash
+                        45 + index * 40 // Adjusted position for each notification
                     );
-                    notification.duration -= 1; // Decrease duration
-                    if(notification.duration <= 0) {
-                        notifications.current.splice(index, 1); // Remove expired notification
+
+                    ctx2D.fillStyle = '#2e4c66'; // Set color for scan date
+                    ctx2D.fillText(
+                        scanDate,
+                        30,
+                        45 + index * 40 // Adjusted position for each notification
+                    );
+
+                    // don't decrease duration if rendering an animation
+                    if(t <= 0) {
+                        notification.duration -= 1; // Decrease duration
+                        if(notification.duration <= 0) {
+                            notifications.current.splice((notifications.current.length - 1) - index, 1); // Remove expired notification
+                        }
                     }
                 });
 
-                context.fillStyle = '#2e4c66';
-                context.font = 'bold 16px Apercu';
-                context.textAlign = 'right';
-                context.fillText(
-                    ` Breader: ${currentBreader.current.length > 0 ? currentBreader.current : ""}` + ` - #${replayData?.replayData?.location_id}`,
-                    canvas.width - 30,
-                    30 // Adjusted position for each notification
-                );
-                context.fillText(
-                    `${simulationTime.toLocaleTimeString('en-US', { timeStyle: 'short' })} - ` + `${replayData?.replayData?.date.toLocaleDateString('en-US')}`,
+                ctx2D.fillStyle = '#2e4c66';
+                ctx2D.font = 'bold 32px Apercu';
+                ctx2D.textAlign = 'right';
+                ctx2D.fillText(
+                    ` Breader: ${currentBreader.current.length > 0 ? currentBreader.current : ""}` + ` - #${context?.replayData?.location_id}`,
                     canvas.width - 30,
                     50 // Adjusted position for each notification
+                );
+                ctx2D.textAlign = 'left';
+                const timeString = simulationTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+                const [time, period] = timeString.split(' '); // Split time and AM/PM
+                ctx2D.fillText(
+                    time,
+                    canvas.width - 212,
+                    100 // Adjusted position for each notification
+                );
+                ctx2D.textAlign = 'right';
+                ctx2D.fillText(
+                    period,
+                    canvas.width - 30, // Slightly offset for AM/PM
+                    100 // Same vertical position
+                );
+
+                ctx2D.fillText(
+                    `${context?.replayData?.date.toLocaleDateString('en-US')}`,
+                    canvas.width - 30,
+                    150 // Adjusted position for the second line
                 );
 
                 // Draw each pan
                 pans.forEach((panD) => {
-                    drawKanban(context, panD, t);
+                    drawKanban(ctx2D, panD, t);
                 });
             }
         }
@@ -552,15 +525,10 @@ const ReplayCanvas: React.FC = () => {
         <>
             <canvas
                 ref={canvasRef}
-                width={800}
-                height={600}
+                width={canvasWidth}
+                height={canvasHeight}
                 className='replay-canvas'
             />
-            
-            <button onClick={() => {
-                renderCanvas();
-            }
-            }>Render</button>
         </>
     );
 };
