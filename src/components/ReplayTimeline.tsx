@@ -174,7 +174,8 @@ export function ReplayTimeline() {
 
         console.log("Finished processing data.");
 
-        updateSliderChange(0); // Update the slider to the start position
+        updateSliderChange(context.timelinePosition); // Update the slider to the start position
+        context.jumpToFrame?.(context.timelinePosition);
     };
 
     const handlePlayPause = () => {
@@ -201,10 +202,10 @@ export function ReplayTimeline() {
                 }
                 updateSliderChange(prev);
                 
-                const newValue = prev + 1;
+                const newValue = prev + 0.25;
                 latestTimelinePositionRef.current = newValue;
                 context.setTimelinePosition(newValue);
-            }, 50 / context?.playbackSpeed); // Adjust the interval duration as needed
+            }, 12.5 / context?.playbackSpeed); // Adjust the interval duration as needed
         } else {
             clearInterval(intervalRef.current); // Clear the interval when paused
             intervalRef.current = undefined;

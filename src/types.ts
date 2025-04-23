@@ -43,6 +43,8 @@ type PanDrawable = {
     y: number;
     next_x: number;
     next_y: number;
+    animation_end_frame?: number;
+    animation_start_frame?: number;
 }
 
 enum PanLocation {
@@ -150,10 +152,12 @@ export function getCookTimeForProtein(pan: PanCycle | Pan): number {
 export function getTimeUntilPanExpires(pan: Pan, simulationTime: Date) {
     const timeUntilExpire = pan.expire_date.getTime() - simulationTime.getTime();
     const totalSeconds = Math.floor(timeUntilExpire / 1000);
-    const clampedSeconds = Math.min(totalSeconds, 20 * 60); // Clamp at 20 minutes (1200 seconds)
-    const minutes = Math.floor(clampedSeconds / 60);
-    const seconds = Math.abs(clampedSeconds % 60); // Allow negative time
-    const result = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    const clampedSeconds = Math.min(Math.max(totalSeconds, -99 * 60), 20 * 60);
+     
+    const minutes = Math.floor(Math.abs(clampedSeconds) / 60);
+    const seconds = Math.abs(clampedSeconds % 60);
+    const sign = clampedSeconds < 0 ? "-" : "";
+    const result = `${sign}${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     return result;
 }
 

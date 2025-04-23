@@ -24,7 +24,7 @@ const styles = {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '10px 20px',
+        padding: '8px 16px',
         backgroundColor: '#f5f5f5',
         boxShadow: 'rgb(128, 128, 128) 0px 4px 2px -4px',
         color: '#fff',

@@ -16,6 +16,10 @@ interface ReplayContextType {
     setTimelineResolution: (value: number) => void;
     playbackSpeed: number;
     setPlaybackSpeed: (value: number) => void;
+    spicyLeftSide: boolean;
+    setSpicyLeftSide: (value: boolean) => void;
+    useBreadingQueue: boolean;
+    setUseBreadingQueue: (value: boolean) => void;
 
     // variables
     startTime: Date;

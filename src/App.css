@@ -1,0 +1,73 @@
+.toggle-container {
+    width: 36px;
+    height: 14px;
+    background-color: rgb(224, 224, 224); /* Light pink */
+    border-radius: 30px;
+    cursor: pointer;
+
+    display: flex;
+    align-items: center;
+    
+
+    user-select: none;
+    transition: background-color 0.075s ease;
+  }
+
+.toggle-circle {
+    width: 20px;
+    height: 20px;
+    background-color: #616161; /* Dark pink */
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    user-select: none;
+    transition: transform 0.075s ease, background-color 0.075s ease;
+}
+
+.toggle-container.enabled {
+    background-color: #F06292; /* Green */
+}
+
+.toggle-container.enabled .toggle-circle {
+    background-color: rgb(216, 27, 96); /* Dark green */
+    /* position using transform*/
+    transform: translateX(18px);
+}
+
+.checkmark-icon {
+    width: 18px;
+    height: 18px;
+    filter: invert(100%) brightness(100%) saturate(100%);
+}
+
+.ripple-circle {
+    position: absolute;
+    border-radius: 50%;
+    background-color: rgba(224, 224, 224, 0.05); /* White with some transparency */
+    pointer-events: none; /* Prevent interaction */
+    width: 48px;
+    height: 48px;
+    z-index: 2;
+    mix-blend-mode: difference;
+}
+
+.toggle-container.enabled .ripple-circle {
+    background-color: rgba(216, 27, 96, 0.05);
+}
+
+.toggle-label {
+    font-family: Apercu;
+    font-size: 16px;
+    font-weight: 700;
+    color: rgb(51, 51, 51);
+    margin-left: 10px; /* Space between the toggle and the label */
+}
+
+.input-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+    padding: 5px 0;
+}

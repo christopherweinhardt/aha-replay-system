@@ -22,7 +22,9 @@ const ReplayCanvas: React.FC = () => {
 
     const context = useContext(ReplayContext);
     
+    const executedEvents = useRef<PanEvent[]>([]);
     const virtualPans = useRef<PanDrawable[]>([]);
+    const virtualPanQueueXPositions = useRef<number[]>([]);
     const virtualMachines = useRef<Machine[]>([]);
     const notifications = useRef<Notification[]>([]);
     const currentBreader = useRef<string>("None");
@@ -81,20 +83,19 @@ const ReplayCanvas: React.FC = () => {
 
             const totalWidth = panCount * width + (panCount - 1) * spacing;
 
+            virtualPanQueueXPositions.current = [];
             virtualPans.current = context?.pans?.map((pan, index) => ({
                 pan: pan,
                 x: (canvasWidth/2 - totalWidth/2) + index * (width + spacing),
                 start_x: (canvasWidth/2 - totalWidth/2) + index * (width + spacing),
                 y: 74,
-                next_pan: {
-                    ...pan
-                },
                 next_x: 0,
                 next_y: 0,
             })) || [];
             
             virtualPans.current.forEach((pan) => {
                 pan.pan.pan_location = PanLocation.Queue;
+                virtualPanQueueXPositions.current.push(pan.x);
             });
 
             virtualMachines.current = [];
@@ -103,14 +104,19 @@ const ReplayCanvas: React.FC = () => {
                 virtualMachines.current.push({
                     cooking: false,
                     cooking_protein: undefined,
-                    open_mode: ((i<3) ? true : false),
+                    open_mode: ((i < 3) ? context.spicyLeftSide : !context.spicyLeftSide),
                 });
             }
+
+            notifications.current = [];
+            executedEvents.current = [];
         }
     }
 
     function handleEvent(pan: PanDrawable, event: PanEvent, currentFrame: number) {
         if(!context) return console.log("Replay data is undefined");
+
+        if(executedEvents.current.find(e => e.event_type === event.event_type && e.timestamp === event.timestamp)) return; // Skip if already executed
 
         // get current sim time
         const currentSimulationTime = new Date(context.startTime.getTime() + currentFrame * 1000);
@@ -124,6 +130,30 @@ const ReplayCanvas: React.FC = () => {
                     currentBreader.current = event.pan_cycle.breader_id;
                     break;
                 case 'fill': {
+
+                    if(context.useBreadingQueue) {
+                        const panIndex = virtualPanQueueXPositions.current.findIndex(x => x === pan.x);
+                        if(panIndex !== -1) {
+    
+                            const pansInQueue = virtualPans.current
+                                .filter(p => p.pan.pan_location === PanLocation.Queue)
+                                .sort((a, b) => a.x - b.x);
+    
+                            // shift pans in queue to the left
+                            for(let i = panIndex + 1; i < pansInQueue.length; i++) {
+    
+                                const actualIndex = virtualPans.current.findIndex(p => p.pan.protein_pan === pansInQueue[i].pan.protein_pan);
+    
+                                virtualPans.current[actualIndex].next_x = virtualPanQueueXPositions.current[i - 1];
+                                virtualPans.current[actualIndex].next_y = 74;
+                                virtualPans.current[actualIndex].animation_start_frame = Math.floor(context.timelinePosition);
+                                virtualPans.current[actualIndex].animation_end_frame = Math.floor(context.timelinePosition) + 4;
+    
+                                console.log("Shifting pan", virtualPans.current[actualIndex].pan.protein_pan, "to", i);
+                            }
+                        }
+                    }
+
                     pan.next_y = 580;
                     pan.next_x = canvasWidth/2 - 80; // funnel x position
                     pan.pan.pan_location = PanLocation.Funnel;
@@ -138,10 +168,19 @@ const ReplayCanvas: React.FC = () => {
                     virtualMachines.current[machineIndex].cooking = false;
                     virtualMachines.current[machineIndex].cooking_protein = undefined;
 
+                    // shift breading queue to the left
+                    // get index of the pan in the queue from x value
+
                     break;
                 }
                 case 'cook': {
                     
+                    // if pan protein is already cooking, skip
+                    const existingMachineIndex = virtualMachines.current.findIndex(m => m.cooking_protein?.protein_pan === pan.pan.protein_pan);
+                    if(existingMachineIndex !== -1) {
+                        return;
+                    }
+
                     // determine if the pan is spicy
                     const isSpicy = pan.pan.protein_pan.toLowerCase().includes('spicy');
                     
@@ -158,11 +197,18 @@ const ReplayCanvas: React.FC = () => {
 
                     break;
                 }
-                case 'stop':
+                case 'stop': { 
                     pan.next_y = 74;
-                    pan.next_x = pan.start_x;
+                    
+                    // get pans in queue
+                    const pansInQueue = virtualPans.current.filter(p => p.pan.pan_location === PanLocation.Queue);
+                    console.log(pansInQueue);
+                    // set next x position to the last x position of the queue
+                    pan.next_x = context.useBreadingQueue ? virtualPanQueueXPositions.current[pansInQueue.length] : pan.start_x;
+
                     pan.pan.pan_location = PanLocation.Queue;
-                    break;
+                    break; 
+                }
             }
             // Check if the event is already in the notifications
             const isAlreadyNotified = notifications.current.some(notification => notification.message === getEventNotificationString(event));
@@ -173,6 +219,9 @@ const ReplayCanvas: React.FC = () => {
                 duration: 600, // Duration in frames,
                 data: event,
             });
+
+            
+            executedEvents.current.push(event);
         }
     }
 
@@ -190,7 +239,6 @@ const ReplayCanvas: React.FC = () => {
             } else {
                 startFrame = 0;
                 initPans();
-                notifications.current = []; // Clear notifications
             }
     
             // loop through all frames until the desired frame
@@ -203,13 +251,15 @@ const ReplayCanvas: React.FC = () => {
                     if(!pan) return console.log("Pan not found", event.pan_cycle.protein_pan);
                     handleEvent(pan, event, i);
     
-                    // evaluate the "next" state of the pan
-                    if(pan.next_x > 0 || pan.next_y > 0) {
-                        pan.x = pan.next_x;
-                        pan.y = pan.next_y;
-                        pan.next_x = 0;
-                        pan.next_y = 0;
-                    }
+                    // evaluate the "next" state of all pans
+                    virtualPans.current.forEach((pan) => {
+                        if(pan.next_x > 0 || pan.next_y > 0) {
+                            pan.x = pan.next_x;
+                            pan.y = pan.next_y;
+                            pan.next_x = 0;
+                            pan.next_y = 0;
+                        }
+                    });
                 });
                 
                 // remove 1 duration
@@ -252,43 +302,40 @@ const ReplayCanvas: React.FC = () => {
         }
 
         const keyframe = context.keyframeData?.keyframes[Math.floor(context.timelinePosition)];
+
+        const animationDuration = 4; // Animation duration in frames
         
         // for each event
         keyframe.events.forEach((event: PanEvent) => {
             const pan = virtualPans.current.find(p => p.pan.protein_pan === event.pan_cycle.protein_pan);
             if(!pan) return console.log("Pan not found", event.pan_cycle.protein_pan);
             handleEvent(pan, event, context.timelinePosition);
+            pan.animation_start_frame = Math.floor(context.timelinePosition);
+            pan.animation_end_frame = Math.floor(context.timelinePosition) + animationDuration;
         });
 
         // get current sim time
         const simulationTime = new Date(context.startTime.getTime() + context.timelinePosition * 1000);
 
-        if (keyframe.events.length == 0) {
-            renderScene(virtualPans.current, 0, simulationTime);
-        } else {
-            const startTime = Date.now();
-            const duration = 200; // Animation duration in milliseconds
-            const animate = () => {
-                const currentTime = Date.now();
-                const elapsedTime = currentTime - startTime;
-                const t = Math.min(elapsedTime / duration, 1); // Normalize t to [0, 1]
-                renderScene(virtualPans.current, t, simulationTime);
-                if (t < 1) {
-                    animationID.current = requestAnimationFrame(animate);
-                } else {
-                    // At the end of the animation, set all the pans' next values to the real deal
-                    virtualPans.current.forEach((pan) => {
-                        if(pan.next_x > 0)
-                            pan.x = pan.next_x;
-                        pan.next_x = 0;
-                        if(pan.next_y > 0)
-                            pan.y = pan.next_y;
-                        pan.next_y = 0;
-                    });
-                }
-            };
-            animate();
-        }
+        renderScene(virtualPans.current, simulationTime);
+        
+        // At the end of the animation, set all the pans' next values to the real deal
+        virtualPans.current.forEach((pan) => {
+            if(!pan.animation_end_frame || !pan.animation_start_frame) return;
+
+            const t = Math.min(1, (context.timelinePosition - pan.animation_start_frame) / (pan.animation_end_frame - pan.animation_start_frame));
+            if(t >= 1) {
+                if(pan.next_x > 0)
+                    pan.x = pan.next_x;
+                pan.next_x = 0;
+                if(pan.next_y > 0)
+                    pan.y = pan.next_y;
+                pan.next_y = 0;
+
+                pan.animation_start_frame = undefined;
+                pan.animation_end_frame = undefined;
+            }
+        });
     }
 
     function getEventNotificationString(event: PanEvent): string {
@@ -306,16 +353,22 @@ const ReplayCanvas: React.FC = () => {
         }
     }
 
-    function renderScene(pans: PanDrawable[], t: number = 0, simulationTime: Date) {
+    function renderScene(pans: PanDrawable[], simulationTime: Date) {
         if(!context) return console.log("Replay data is undefined");
-        const drawKanban = (ctx2D: CanvasRenderingContext2D, pan: PanDrawable, t: number) => {
+        const drawKanban = (ctx2D: CanvasRenderingContext2D, pan: PanDrawable) => {
             if(!context) return console.log("Replay data is undefined");
-            const width = 160;
+
             if (ctx2D) {
     
                 // Draw the kanban image
                 let img;
                 
+                
+                const width = 160;
+                let t = 0;
+                if(pan.animation_end_frame && pan.animation_start_frame)
+                    t = Math.min(1, (context.timelinePosition - pan.animation_start_frame) / (pan.animation_end_frame - pan.animation_start_frame));
+
                 if (pan.pan.pan_location === PanLocation.Holding) {
                     const isExpired = simulationTime.getTime() >= pan.pan.expire_date.getTime();
                     img = isExpired ? images.current[kanban_expired] : images.current[kanban];
@@ -475,12 +528,10 @@ const ReplayCanvas: React.FC = () => {
                         45 + index * 40 // Adjusted position for each notification
                     );
 
-                    // don't decrease duration if rendering an animation
-                    if(t <= 0) {
-                        notification.duration -= 1; // Decrease duration
-                        if(notification.duration <= 0) {
-                            notifications.current.splice((notifications.current.length - 1) - index, 1); // Remove expired notification
-                        }
+                    
+                    notification.duration -= 0.25; // Decrease duration
+                    if(notification.duration <= 0) {
+                        notifications.current.splice((notifications.current.length - 1) - index, 1); // Remove expired notification
                     }
                 });
 
@@ -515,7 +566,7 @@ const ReplayCanvas: React.FC = () => {
 
                 // Draw each pan
                 pans.forEach((panD) => {
-                    drawKanban(ctx2D, panD, t);
+                    drawKanban(ctx2D, panD);
                 });
             }
         }
